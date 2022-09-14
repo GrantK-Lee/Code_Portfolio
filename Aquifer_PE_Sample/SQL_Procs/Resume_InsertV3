@@ -1,0 +1,178 @@
+USE [CnmPro]
+GO
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+ALTER PROC [dbo].[Resumes_InsertV3]
+	@Description nvarchar(200)
+	,@Name nvarchar(200)
+	,@Email nvarchar(255)
+	,@Phone nvarchar(20)
+	,@Notes nvarchar(500)
+	,@ResumeFileId int
+	,@CreatedBy int
+	,@ModifiedBy int
+	,@BatchExperience dbo.Experience READONLY
+	,@BatchEducation dbo.Education READONLY
+	,@BatchSkills dbo.Skills READONLY
+	,@BatchFreelanceGoals dbo.FreelanceGoal READONLY
+	,@Id int OUTPUT
+AS	
+
+BEGIN
+	DECLARE @ExperienceId int = 0
+	DECLARE @ResumeId int = 0
+	DECLARE @ResumeContactId int = 0
+	DECLARE @ResumeEducationId int = 0
+
+	DECLARE @ExperiencesId as table ( ExId int )
+	DECLARE @EducationsId as table ( EdId int )
+
+	INSERT INTO dbo.ResumeContact
+					(Name
+					,Email
+					,Phone
+					,Notes
+					,CreatedBy
+					,ModifiedBy)
+			VALUES
+					(@Name
+					,@Email
+					,@Phone
+					,@Notes
+					,@CreatedBy
+					,@ModifiedBy)
+
+			SET @ResumeContactId = SCOPE_IDENTITY();
+
+	INSERT INTO dbo.Education
+					(InstitutionId
+					,EdProgramTypeId
+					,SpecializationTypeId
+					,DateStart
+					,DateEnd
+					,Description
+					,IsGraduated
+					,CreatedBy
+					,ModifiedBy)
+
+			OUTPUT	INSERTED.Id
+			INTO	@EducationsId
+					(
+						EdId
+					)
+			SELECT 
+
+					ed.InstitutionId
+					,ed.EdProgramTypeId
+					,ed.SpecializationTypeId
+					,ed.DateStart
+					,ed.DateEnd
+					,ed.Description
+					,ed.IsGraduated
+					,ed.CreatedBy
+					,ed.ModifiedBy
+			FROM @BatchEducation as ed
+
+	INSERT INTO dbo.Experience
+					(Title
+					,EmploymentTypeId
+					,CompanyName
+					,LocationId
+					,IsCurrent
+					,DateStart
+					,DateEnd
+					,Description
+					,CreatedBy
+					,ModifiedBy)
+					
+			OUTPUT	INSERTED.Id
+			INTO	@ExperiencesId
+					(
+						ExId
+					)
+					
+			SELECT be.Title
+					,be.EmploymentTypeId
+					,be.CompanyName
+					,be.LocationId
+					,be.IsCurrent
+					,be.DateStart
+					,be.DateEnd
+					,be.Description
+					,be.CreatedBy
+					,be.ModifiedBy
+			FROM @BatchExperience as be
+
+	INSERT INTO dbo.Resumes
+				(Description
+				,ResumeContactId
+				,ResumeFileId
+				,CreatedBy)
+			VALUES
+				(@Description
+				,@ResumeContactId
+				,@ResumeFileId
+				,@CreatedBy)
+
+			SET @Id = SCOPE_IDENTITY()
+			SET @ResumeId = SCOPE_IDENTITY()
+
+	INSERT INTO dbo.ResumeExperience
+				(ResumeId
+				,ExperienceId)
+			SELECT
+				@ResumeId
+				,e.Id
+			FROM dbo.Experience as e
+			WHERE EXISTS(SELECT 1
+						FROM @ExperiencesId as be
+						WHERE e.Id = be.ExId)
+
+	INSERT INTO dbo.ResumeEducation
+				(ResumeId
+				,EducationId)
+			SELECT
+				@ResumeId
+				,ed.Id
+			FROM dbo.Education as ed
+			WHERE Exists(SELECT 1
+						FROM @EducationsId as be
+						WHERE ed.Id = be.EdId)
+
+	INSERT INTO [dbo].[Skills] ([Name])
+	SELECT	 [s].[Name]
+	FROM	 @BatchSkills as s
+	WHERE	 NOT EXISTS( SELECT 1
+						 FROM [dbo].[Skills] AS [OS]
+						 WHERE [OS].Name = [s].Name )
+	
+	INSERT INTO dbo.ResumeSkills(ResumeId, SkillId)
+		(SELECT @ResumeId, [OS].Id
+			FROM dbo.Skills as [OS]
+			WHERE Exists (
+						SELECT 1
+						FROM @BatchSkills as s
+						WHERE [OS].[Name] = [s].[Name]
+			)
+		)
+
+	INSERT INTO [dbo].[FreelanceGoalTypes] ([Name])
+	SELECT	 [s].[Name]
+	FROM	 @BatchFreelanceGoals as s
+	WHERE	 NOT EXISTS( SELECT 1
+						 FROM [dbo].[FreelanceGoalTypes] AS [OS]
+						 WHERE [OS].Name = [s].Name )
+	
+	INSERT INTO dbo.ResumeFreelanceGoalType(ResumeId, FreelanceGoalTypeId)
+		(SELECT @ResumeId, [OS].Id
+			FROM dbo.FreelanceGoalTypes as [OS]
+			WHERE Exists (
+						SELECT 1
+						FROM @BatchFreelanceGoals as s
+						WHERE [OS].[Name] = [s].[Name]
+			)
+		)
+END
